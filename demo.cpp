@@ -21,7 +21,17 @@ int main(int argc, const char * argv[]) {
     emitter emitter;
     emitter.on("event", [&emitter](int data) {
         ostringstream osstream;
-        osstream << "data: " << data << '\n';
+        osstream << "[Listener 1] data: " << data << '\n';
+        std::cout<<osstream.str();
+    });
+    emitter.on("event", [&emitter](int data) {
+        ostringstream osstream;
+        osstream << "[Listener 2] data: " << data << '\n';
+        std::cout<<osstream.str();
+    });
+    emitter.once("event", [&emitter](int data) {
+        ostringstream osstream;
+        osstream << "[Once Listener] data: " << data << '\n';
         std::cout<<osstream.str();
     });
     
