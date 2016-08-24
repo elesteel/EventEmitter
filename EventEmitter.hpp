@@ -88,8 +88,21 @@ public:
         std::for_each(once_listener.begin(), once_listener.end(), [&listeners](auto &iterator) {
             listeners.erase(iterator);
         });
+        listeners.shrink_to_fit();
     }
-
+    
+    /**
+     *  @brief Number of listeners
+     *
+     *  @param event  Event name
+     */
+    ssize_t listener_count(const std::string& event) {
+        std::unique_lock<std::mutex> locker(_events_mtx);
+        auto event_listeners = events.find(event);
+        if (event_listeners == events.end()) return 0;
+        return events[event].size();;
+    }
+    
 protected:
     /**
      *  @brief Constructor

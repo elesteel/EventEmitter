@@ -35,6 +35,8 @@ int main(int argc, const char * argv[]) {
         std::cout<<osstream.str();
     });
     
+    std::cout<<emitter.listener_count("event")<<" listeners for 'event'\n";
+    
     vector<thread> threads;
     for (int i = 0; i < 10; i++) {
         threads.emplace_back([&emitter, i]() {
@@ -43,4 +45,6 @@ int main(int argc, const char * argv[]) {
     }
     
     for (auto &t : threads) t.join();
+    
+    std::cout<<emitter.listener_count("event")<<" listeners for 'event'\n";
 }
