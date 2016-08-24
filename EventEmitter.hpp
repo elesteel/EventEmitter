@@ -85,7 +85,7 @@ public:
                 }
             }
         }
-        std::for_each(once_listener.begin(), once_listener.end(), [&listeners](auto &iterator) {
+        std::for_each(once_listener.begin(), once_listener.end(), [&listeners](std::vector<EventListener>::iterator& iterator) {
             listeners.erase(iterator);
         });
         listeners.shrink_to_fit();
