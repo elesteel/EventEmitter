@@ -14,8 +14,7 @@
 
 using namespace std;
 
-class emitter : public EventEmitter {
-};
+class emitter : public EventEmitter {};
 
 int main(int argc, const char * argv[]) {
     emitter emitter;
