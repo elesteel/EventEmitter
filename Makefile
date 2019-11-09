@@ -5,7 +5,7 @@ HEADER = EventEmitter.hpp
 DEMO = emitter
 
 demo : $(TARGET)
-	$(CXX) -std=c++14 -I$(PREFIX)/include -fPIC demo.cpp -o $(DEMO)
+	$(CXX) -std=c++11 -I$(PREFIX)/include -fPIC demo.cpp -lpthread -o $(DEMO)
     
 install :
 	install -m 644 $(HEADER) $(PREFIX)/include

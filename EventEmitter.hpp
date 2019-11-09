@@ -15,29 +15,20 @@
 #include <tuple>
 #include <type_traits>
 #include <vector>
+#include <set>
 #include <algorithm> //std::forEach()
-#include <Functor.hpp>
+#include "Functor.h"
 
 class EventEmitter {
 public:
-    /**
-     *  @brief EventListener
-     *
-     *  @note  Callable Function, Call once
-     */
-    using EventListener = std::tuple<Functor *, bool>;
-    
+    using handler_type = Functor*;
     /**
      *  @brief Deconstructor
      */
     ~EventEmitter() {
-        std::for_each(events.begin(), events.end(), [](std::pair<std::string, std::vector<EventListener>> pair) {
-            std::vector<EventListener>& listeners = pair.second;
-            std::for_each(listeners.begin(), listeners.end(), [](EventListener& listener) {
-                delete std::get<0>(listener);
-            });
-        });
-        events.clear();
+        for(auto it = registry_.begin(); it != registry_.end(); ++it) {
+            delete it->first;
+        }
     }
     
     /**
@@ -45,11 +36,18 @@ public:
      *
      *  @param event  Event name
      *  @param lambda Callback function when event emitted
+     *  @return a handle which can be used in removeListener
      */
     template <typename Function>
-    void on(const std::string& event, Function&& lambda) {
+    handler_type on(const std::string& event, Function&& lambda) {
         std::unique_lock<std::mutex> locker(_events_mtx);
-        events[event].emplace_back(new Functor{std::forward<Function>(lambda)}, false);
+        auto func = new Functor{std::forward<Function>(lambda)};
+        // events[event].emplace_back(func, false);
+        // events[event][func] = std::make_tuple(func, false);
+        // listeners_[func] = event;
+        listeners_[event].insert(func);
+        registry_[func] = event;
+        return func;
     }
     
     /**
@@ -57,11 +55,18 @@ public:
      *
      *  @param event  Event name
      *  @param lambda Callback function when event emitted
+     *  @return a handle which can be used in removeListener
      */
     template <typename Function>
-    void once(const std::string& event, Function&& lambda) {
+    handler_type once(const std::string& event, Function&& lambda) {
         std::unique_lock<std::mutex> locker(_events_mtx);
-        events[event].emplace_back(new Functor{std::forward<Function>(lambda)}, true);
+        auto func = new Functor{std::forward<Function>(lambda)};
+        // events[event].emplace_back(new Functor{std::forward<Function>(lambda)}, true);
+        // events[event][func] = std::make_tuple(func, true);
+        // listeners_[func] = event;
+        once_listeners_[event].insert(func);
+        registry_[func] = event;
+        return func;
     }
     
     /**
@@ -72,24 +77,30 @@ public:
     template <typename ... Arg>
     void emit(const std::string& event, Arg&& ... args) {
         std::unique_lock<std::mutex> locker(_events_mtx);
-        std::vector<EventListener>& listeners = events[event];
-        std::vector<std::vector<EventListener>::iterator> once_listener;
-        for (auto listener = listeners.begin(); listener != listeners.end(); listener++) {
-            Functor * on = std::get<0>(*listener);
-            bool once = std::get<1>(*listener);
-            if (on) {
-                (*on) (std::forward<Arg>(args)...);
-                if (once) {
-                    delete on;
-                    std::get<0>(*listener) = nullptr;
-                    once_listener.emplace_back(listener);
+
+        if (listeners_.find(event) != listeners_.end()) {
+            auto& listeners = listeners_[event];
+            for(auto it = listeners.begin(); it != listeners.end(); ++it) {
+                Functor *func = *it;
+                if (func) {
+                    (*func) (std::forward<Arg>(args)...);
                 }
             }
         }
-        std::for_each(once_listener.begin(), once_listener.end(), [&listeners](std::vector<EventListener>::iterator& iterator) {
-            listeners.erase(iterator);
-        });
-        listeners.shrink_to_fit();
+
+        if (once_listeners_.find(event) != once_listeners_.end()) {
+            auto& once_listeners = once_listeners_[event];
+            for(auto it = once_listeners.begin(); it != once_listeners.end(); ++it) {
+                Functor *func = *it;
+                if (func) {
+                    (*func) (std::forward<Arg>(args)...);
+                    registry_.erase(func);
+                    delete func;
+                }
+            }
+            once_listeners.clear();
+            once_listeners_.erase(event);
+        }        
     }
     
     /**
@@ -99,9 +110,37 @@ public:
      */
     ssize_t listener_count(const std::string& event) {
         std::unique_lock<std::mutex> locker(_events_mtx);
-        auto event_listeners = events.find(event);
-        if (event_listeners == events.end()) return 0;
-        return events[event].size();;
+        ssize_t count = 0;
+        auto it = listeners_.find(event);
+        if (it != listeners_.end()) {
+            count += listeners_[event].size();
+        }
+        auto it2 = once_listeners_.find(event);
+        if (it2 != once_listeners_.end()) {
+            count += once_listeners_[event].size();
+        }
+        return count;
+    }
+
+    void removeListener(handler_type listener) {
+        std::unique_lock<std::mutex> locker(_events_mtx);
+        if (registry_.find(listener) == registry_.end()) {
+            return;
+        }
+        auto event = registry_[listener];
+        if (listeners_.find(event) != listeners_.end()) {
+            listeners_[event].erase(listener);
+            if (listeners_[event].empty()) {
+                listeners_.erase(event);
+            }
+        }
+
+        if (once_listeners_.find(event) != once_listeners_.end()) {
+            once_listeners_[event].erase(listener);
+            if (once_listeners_[event].empty()) {
+                once_listeners_.erase(event);
+            }
+        }
     }
     
 protected:
@@ -111,16 +150,42 @@ protected:
     EventEmitter() {
     };
     
-    /**
-     *  @brief Event name - EventListener
-     */
-    std::map<std::string, std::vector<EventListener>> events;
+
+    std::map<std::string, std::set<Functor*>> listeners_;
+
+    std::map<std::string, std::set<Functor*>> once_listeners_;
+
+    std::map<Functor*, std::string> registry_;
     
 private:
     /**
      *  @brief Mutex for events
      */
     std::mutex _events_mtx;
+};
+
+
+class Binder final {
+public:
+    Binder(EventEmitter& target)
+    : target_(target) {}
+
+    ~Binder() 
+    {
+        for(auto handle : registry_) {
+            target_.removeListener(handle);
+        }
+    }
+
+    template <typename ... Arg>
+    void on(Arg&& ... args) {
+        auto handle = target_.on(std::forward<Arg>(args)...);
+        registry_.push_back(handle);
+    }
+
+private:
+    EventEmitter& target_;
+    std::vector<EventEmitter::handler_type> registry_;
 };
 
 #endif /* EVENTEMITTER_HPP */
